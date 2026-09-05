@@ -30,6 +30,8 @@ const ownedSetSchema = new mongoose.Schema(
     setNum: { type: String, required: true, trim: true },
     setName: { type: String, required: true },
     copyCount: { type: Number, required: true, min: 1, default: 1 },
+    excludeFromBuild: { type: Boolean, default: false },
+    excludeCount: { type: Number, min: 1, default: null },
     parts: { type: [partSchema], default: [] },
     partCount: { type: Number, default: 0 },
     imageUrl: String,

@@ -18,9 +18,14 @@ export const api = {
   addOwnedSet: (data) => request('/sets/owned', { method: 'POST', body: JSON.stringify(data) }),
   backfillPartMetadata: () => request('/sets/owned/backfill-part-metadata', { method: 'POST' }),
   removeOwnedSet: (id) => request(`/sets/owned/${id}`, { method: 'DELETE' }),
+  updateOwnedSet: (id, data) => request(`/sets/owned/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  incrementCopyCount: (id) => request(`/sets/owned/${id}`, { method: 'PATCH', body: JSON.stringify({ incrementCopyCount: true }) }),
   inventory: () => request('/inventory'),
   buildCheck: (setNum, matching) => {
     const query = new URLSearchParams({ ignoreColors: String(matching.ignoreColors), ignorePrints: String(matching.ignorePrints) })
     return request(`/build/${encodeURIComponent(setNum)}?${query}`)
   },
+  listWishlist: () => request('/wishlist'),
+  addToWishlist: (data) => request('/wishlist', { method: 'POST', body: JSON.stringify(data) }),
+  removeFromWishlist: (id) => request(`/wishlist/${id}`, { method: 'DELETE' }),
 }

@@ -9,6 +9,7 @@ const router = Router()
 router.get('/lookup/:setNum', requireAuth, async (req, res) => {
   try {
     const data = await getSetWithParts(req.params.setNum, await getUserRebrickableKey(req.user._id))
+    console.log('xxxx');
     res.json(data)
   } catch (error) {
     res.status(404).json({ error: error.message })
@@ -70,6 +71,34 @@ router.post('/owned/backfill-part-metadata', requireAuth, async (req, res) => {
     }
 
     res.json({ updatedSets: outdatedSets.length })
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+router.patch('/owned/:id', requireAuth, async (req, res) => {
+  try {
+    const { excludeFromBuild, excludeCount, incrementCopyCount } = req.body
+    const set = await OwnedSet.findOne({ _id: req.params.id, userId: req.user._id })
+    if (!set) return res.status(404).json({ error: 'Set not found' })
+
+    if (incrementCopyCount === true) {
+      set.copyCount += 1
+    }
+
+    if (typeof excludeFromBuild === 'boolean') set.excludeFromBuild = excludeFromBuild
+    if (!set.excludeFromBuild) {
+      set.excludeCount = null
+    } else if (excludeCount !== undefined) {
+      const count = Number(excludeCount)
+      if (!Number.isInteger(count) || count < 1 || count > set.copyCount) {
+        return res.status(400).json({ error: `excludeCount must be between 1 and ${set.copyCount}` })
+      }
+      set.excludeCount = count
+    }
+
+    await set.save()
+    res.json({ set })
   } catch (error) {
     res.status(400).json({ error: error.message })
   }
