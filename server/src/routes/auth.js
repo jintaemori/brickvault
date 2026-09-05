@@ -1,8 +1,14 @@
 import { Router } from 'express'
 import { User } from '../models/User.js'
-import { signToken } from '../middleware/auth.js'
+import { requireAuth, signToken } from '../middleware/auth.js'
+import { encrypt } from '../services/credentials.js'
+import { validateApiKey } from '../services/rebrickable.js'
 
 const router = Router()
+
+function publicUser(user) {
+  return { id: user._id, email: user.email, name: user.name, hasRebrickableKey: Boolean(user.rebrickableKey) }
+}
 
 router.post('/register', async (req, res) => {
   try {
@@ -31,7 +37,7 @@ router.post('/register', async (req, res) => {
     const token = signToken(user._id)
     res.status(201).json({
       token,
-      user: { id: user._id, email: user.email, name: user.name },
+      user: publicUser(user),
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
@@ -46,7 +52,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' })
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() })
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+rebrickableKey')
     if (!user || !(await user.verifyPassword(password))) {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
@@ -54,10 +60,27 @@ router.post('/login', async (req, res) => {
     const token = signToken(user._id)
     res.json({
       token,
-      user: { id: user._id, email: user.email, name: user.name },
+      user: publicUser(user),
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
+  }
+})
+
+router.get('/rebrickable-key', requireAuth, async (req, res) => {
+  const user = await User.findById(req.user._id).select('+rebrickableKey')
+  res.json({ linked: Boolean(user?.rebrickableKey) })
+})
+
+router.put('/rebrickable-key', requireAuth, async (req, res) => {
+  const apiKey = req.body.apiKey?.trim()
+  if (!apiKey) return res.status(400).json({ error: 'A Rebrickable API key is required' })
+  try {
+    await validateApiKey(apiKey)
+    await User.findByIdAndUpdate(req.user._id, { rebrickableKey: encrypt(apiKey) })
+    res.json({ linked: true })
+  } catch {
+    res.status(400).json({ error: 'Rebrickable rejected that API key. Check it and try again.' })
   }
 })
 

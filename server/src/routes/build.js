@@ -2,12 +2,13 @@ import { Router } from 'express'
 import { requireAuth } from '../middleware/auth.js'
 import { OwnedSet } from '../models/OwnedSet.js'
 import { getSetWithParts } from '../services/rebrickable.js'
+import { getUserRebrickableKey } from '../services/credentials.js'
 
 const router = Router()
 
 router.get('/:setNum', requireAuth, async (req, res) => {
   try {
-    const targetSet = await getSetWithParts(req.params.setNum)
+    const targetSet = await getSetWithParts(req.params.setNum, await getUserRebrickableKey(req.user._id))
     const ownedSets = await OwnedSet.find({ userId: req.user._id })
     const availableByPart = new Map()
     for (const ownedSet of ownedSets) {

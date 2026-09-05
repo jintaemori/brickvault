@@ -36,9 +36,7 @@ npm run install:all
 cp server/.env.example server/.env
 ```
 
-Edit `server/.env` with your MongoDB URI and Rebrickable API key.
-
-Get a free Rebrickable API key: https://rebrickable.com/api/
+Edit `server/.env` with your MongoDB URI and encryption secret. Each BrickVault user provides their own Rebrickable API key during account setup; keys are encrypted before storage.
 
 ### 3. Run locally
 
@@ -55,7 +53,7 @@ npm run dev
 |---|---|
 | `MONGODB_URI` | MongoDB Atlas connection string |
 | `JWT_SECRET` | Random secret for auth tokens |
-| `REBRICKABLE_API_KEY` | Rebrickable catalog API key |
+| `ENCRYPTION_KEY` | Long secret used to encrypt users' Rebrickable API keys |
 | `BRICKOWL_API_KEY` | Optional — for buy links |
 | `CLIENT_URL` | Frontend URL (CORS), e.g. `http://localhost:5173` |
 | `PORT` | Server port (default `3001`) |

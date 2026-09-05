@@ -19,6 +19,11 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    rebrickableKey: {
+      type: String,
+      select: false,
+      default: '',
+    },
   },
   { timestamps: true },
 )

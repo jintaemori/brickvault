@@ -2,12 +2,13 @@ import { Router } from 'express'
 import { requireAuth } from '../middleware/auth.js'
 import { OwnedSet } from '../models/OwnedSet.js'
 import { getSetWithParts } from '../services/rebrickable.js'
+import { getUserRebrickableKey } from '../services/credentials.js'
 
 const router = Router()
 
 router.get('/lookup/:setNum', requireAuth, async (req, res) => {
   try {
-    const data = await getSetWithParts(req.params.setNum)
+    const data = await getSetWithParts(req.params.setNum, await getUserRebrickableKey(req.user._id))
     res.json(data)
   } catch (error) {
     res.status(404).json({ error: error.message })
@@ -35,7 +36,7 @@ router.post('/owned', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'copyCount must be a positive integer' })
     }
 
-    const setData = await getSetWithParts(setNum)
+    const setData = await getSetWithParts(setNum, await getUserRebrickableKey(req.user._id))
 
     const ownedSet = await OwnedSet.create({
       userId: req.user._id,

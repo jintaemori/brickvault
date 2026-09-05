@@ -43,8 +43,25 @@ function Auth({ onAuthenticated }) {
   </section></main>
 }
 
+function ApiKeySetup({ checking, onSaved, onLogout }) {
+  const [apiKey, setApiKey] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError('')
+    try { await api.saveRebrickableKey(apiKey); onSaved() } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+  return <main className="auth-shell"><section className="auth-card key-dialog" role="dialog" aria-modal="true" aria-labelledby="api-key-title">
+    <p className="eyebrow">ONE-TIME SETUP</p><h1 id="api-key-title">Link Rebrickable.</h1>
+    {checking ? <p className="muted">Checking your account setup…</p> : <><p className="muted">BrickVault uses your personal Rebrickable key only to look up set inventories. It is encrypted before it is saved and never shown again.</p>
+      <form className="auth-form" onSubmit={submit}><input required type="password" autoComplete="off" placeholder="Paste your Rebrickable API key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />{error && <p className="error">{error}</p>}<button disabled={busy}>{busy ? 'Verifying…' : 'Link key and continue'}</button></form>
+      <a className="help-link" href="https://rebrickable.com/api/" target="_blank" rel="noreferrer">Need a free Rebrickable API key?</a><br /><button className="text-button" onClick={onLogout}>Log out</button></>}
+  </section></main>
+}
+
 function App() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('brickvault-user') || 'null'))
+  const [keyReady, setKeyReady] = useState(null)
   const [tab, setTab] = useState('add')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -59,8 +76,13 @@ function App() {
     setOwnedSets(sets.sets); setInventory(parts)
   }
   useEffect(() => {
-    if (!user) return undefined
+    if (!user || keyReady !== true) return undefined
     const timer = window.setTimeout(() => refresh().catch((err) => setError(err.message)), 0)
+    return () => window.clearTimeout(timer)
+  }, [user, keyReady])
+  useEffect(() => {
+    if (!user) return undefined
+    const timer = window.setTimeout(() => api.rebrickableStatus().then(({ linked }) => setKeyReady(linked)).catch((err) => setError(err.message)), 0)
     return () => window.clearTimeout(timer)
   }, [user])
   async function run(work) {
@@ -71,8 +93,11 @@ function App() {
   function addSet() { run(async () => { await api.addOwnedSet({ setNum: preview.setNum, copyCount: copies }); await refresh(); setNotice(`${preview.setName} added to your vault.`); setPreview(null) }) }
   function removeSet(id) { run(async () => { await api.removeOwnedSet(id); await refresh(); setNotice('Set removed from your vault.') }) }
   function check(setNum) { run(async () => setBuild(await api.buildCheck(setNum))) }
-  function logout() { localStorage.removeItem('brickvault-token'); localStorage.removeItem('brickvault-user'); setUser(null) }
-  if (!user) return <Auth onAuthenticated={setUser} />
+  function logout() { localStorage.removeItem('brickvault-token'); localStorage.removeItem('brickvault-user'); setUser(null); setKeyReady(null) }
+  function authenticated(account) { localStorage.setItem('brickvault-user', JSON.stringify(account)); setUser(account); setKeyReady(account.hasRebrickableKey) }
+  function keySaved() { const updatedUser = { ...user, hasRebrickableKey: true }; localStorage.setItem('brickvault-user', JSON.stringify(updatedUser)); setUser(updatedUser); setKeyReady(true) }
+  if (!user) return <Auth onAuthenticated={authenticated} />
+  if (keyReady !== true) return <ApiKeySetup checking={keyReady === null} onSaved={keySaved} onLogout={logout} />
   return <div className="app-shell"><header><a className="brand" href="#top">Brick<span>Vault</span></a><div className="account">{user.name || user.email}<button className="text-button" onClick={logout}>Log out</button></div></header>
     <main id="top"><section className="hero"><p className="eyebrow">PERSONAL LEGO INVENTORY</p><h1>Build from what you own.</h1><p>Track dismantled sets and see exactly which pieces stand between you and your next build.</p></section>
       <nav>{[['add', 'Add sets'], ['inventory', 'My inventory'], ['build', 'Build checker']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>

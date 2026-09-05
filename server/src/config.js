@@ -1,6 +1,6 @@
 import 'dotenv/config'
 
-const required = ['MONGODB_URI', 'JWT_SECRET', 'REBRICKABLE_API_KEY']
+const required = ['MONGODB_URI', 'JWT_SECRET', 'ENCRYPTION_KEY']
 
 for (const key of required) {
   if (!process.env[key]) {
@@ -13,6 +13,6 @@ export const config = {
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
   mongodbUri: process.env.MONGODB_URI,
   jwtSecret: process.env.JWT_SECRET,
-  rebrickableApiKey: process.env.REBRICKABLE_API_KEY,
+  encryptionKey: process.env.ENCRYPTION_KEY,
   brickOwlApiKey: process.env.BRICKOWL_API_KEY || '',
 }

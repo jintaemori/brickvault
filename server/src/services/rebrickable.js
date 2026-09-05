@@ -1,11 +1,9 @@
-import { config } from '../config.js'
-
 const BASE_URL = 'https://rebrickable.com/api/v3'
 const USER_AGENT = 'BrickVault/0.1 (lego inventory app)'
 
-async function rebrickableFetch(path, params = {}) {
+async function rebrickableFetch(path, apiKey, params = {}) {
   const url = new URL(`${BASE_URL}${path}`)
-  url.searchParams.set('key', config.rebrickableApiKey)
+  url.searchParams.set('key', apiKey)
 
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null) {
@@ -27,14 +25,18 @@ async function rebrickableFetch(path, params = {}) {
   return response.json()
 }
 
-export async function resolveSetNumber(input) {
+export async function validateApiKey(apiKey) {
+  await rebrickableFetch('/lego/sets/', apiKey, { page_size: 1 })
+}
+
+export async function resolveSetNumber(input, apiKey) {
   const trimmed = input.trim()
 
   if (/^\d+-\d+$/.test(trimmed)) {
-    return getSet(trimmed)
+    return getSet(trimmed, apiKey)
   }
 
-  const results = await rebrickableFetch('/lego/sets/', {
+  const results = await rebrickableFetch('/lego/sets/', apiKey, {
     search: trimmed,
     page_size: 10,
   })
@@ -50,22 +52,29 @@ export async function resolveSetNumber(input) {
   return partial
 }
 
-export async function getSet(setNum) {
-  return rebrickableFetch(`/lego/sets/${setNum}/`)
+export async function getSet(setNum, apiKey) {
+  return rebrickableFetch(`/lego/sets/${setNum}/`, apiKey)
 }
 
-export async function getSetParts(setNum) {
+export async function getSetParts(setNum, apiKey) {
   const parts = []
   let nextUrl = null
   let page = 1
 
   do {
-    const data = nextUrl
-      ? await fetch(nextUrl, { headers: { 'User-Agent': USER_AGENT } }).then((r) => r.json())
-      : await rebrickableFetch(`/lego/sets/${setNum}/parts/`, {
-          page_size: 1000,
-          inc_color_details: 1,
-        })
+    let data
+    if (nextUrl) {
+      const url = new URL(nextUrl)
+      url.searchParams.set('key', apiKey)
+      const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+      if (!response.ok) throw new Error(`Rebrickable API error (${response.status})`)
+      data = await response.json()
+    } else {
+      data = await rebrickableFetch(`/lego/sets/${setNum}/parts/`, apiKey, {
+        page_size: 1000,
+        inc_color_details: 1,
+      })
+    }
 
     for (const row of data.results || []) {
       parts.push(normalizePart(row))
@@ -114,9 +123,9 @@ function normalizePart(row) {
   }
 }
 
-export async function getSetWithParts(setNumInput) {
-  const setMeta = await resolveSetNumber(setNumInput)
-  const parts = await getSetParts(setMeta.set_num)
+export async function getSetWithParts(setNumInput, apiKey) {
+  const setMeta = await resolveSetNumber(setNumInput, apiKey)
+  const parts = await getSetParts(setMeta.set_num, apiKey)
 
   return {
     setNum: setMeta.set_num,
