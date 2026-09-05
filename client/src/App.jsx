@@ -59,6 +59,77 @@ function ApiKeySetup({ checking, onSaved, onLogout }) {
   </section></main>
 }
 
+function computeWishlistCoverage(items, ownedSets) {
+  // Build a flat inventory pool: partKey -> { exact: qty, ignoreColor: qty, ignorePrint: qty, ignoreBoth: qty }
+  // partKey (exact)        = "part:partNum:colorId"
+  // partKey (ignoreColor)  = "part:partNum"
+  // partKey (ignorePrint)  = "part:basePartNum:colorId"
+  // partKey (ignoreBoth)   = "part:basePartNum"
+  // minifigs always exact  = canonicalId
+  const pool = { exact: new Map(), ignoreColor: new Map(), ignorePrint: new Map(), ignoreBoth: new Map() }
+
+  for (const owned of ownedSets) {
+    const effective = owned.excludeFromBuild
+      ? Math.max(0, owned.copyCount - (owned.excludeCount ?? owned.copyCount))
+      : owned.copyCount
+    if (effective === 0) continue
+    for (const part of owned.parts) {
+      const qty = part.qtyPerSet * effective
+      if (part.type === 'minifig') {
+        const k = part.canonicalId
+        for (const bucket of Object.values(pool)) bucket.set(k, (bucket.get(k) || 0) + qty)
+      } else {
+        const pn = part.partNum; const bp = part.basePartNum || part.partNum; const ci = part.colorId
+        const keys = {
+          exact: `${pn}:${ci}`,
+          ignoreColor: `${pn}`,
+          ignorePrint: `${bp}:${ci}`,
+          ignoreBoth: `${bp}`,
+        }
+        for (const [bucket, key] of Object.entries(keys)) pool[bucket].set(key, (pool[bucket].get(key) || 0) + qty)
+      }
+    }
+  }
+
+  const coverage = {}
+  for (const item of items) {
+    if (!item.parts) { coverage[item.setNum] = null; continue }
+    // Track remaining per bucket to avoid double-counting
+    const remaining = { exact: new Map(pool.exact), ignoreColor: new Map(pool.ignoreColor), ignorePrint: new Map(pool.ignorePrint), ignoreBoth: new Map(pool.ignoreBoth) }
+    let strict = 0, byColor = 0, byPrint = 0, byBoth = 0, total = 0
+    for (const part of item.parts) {
+      total++
+      if (part.type === 'minifig') {
+        const k = part.canonicalId; const need = part.qtyPerSet
+        for (const [bucket, rem] of Object.entries(remaining)) {
+          if ((rem.get(k) || 0) >= need) {
+            rem.set(k, rem.get(k) - need)
+            if (bucket === 'exact') strict++
+            if (bucket === 'ignoreColor') byColor++
+            if (bucket === 'ignorePrint') byPrint++
+            if (bucket === 'ignoreBoth') byBoth++
+          }
+        }
+      } else {
+        const pn = part.partNum; const bp = part.basePartNum || part.partNum; const ci = part.colorId; const need = part.qtyPerSet
+        const bucketKeys = { exact: `${pn}:${ci}`, ignoreColor: `${pn}`, ignorePrint: `${bp}:${ci}`, ignoreBoth: `${bp}` }
+        for (const [bucket, key] of Object.entries(bucketKeys)) {
+          const rem = remaining[bucket]
+          if ((rem.get(key) || 0) >= need) {
+            rem.set(key, rem.get(key) - need)
+            if (bucket === 'exact') strict++
+            if (bucket === 'ignoreColor') byColor++
+            if (bucket === 'ignorePrint') byPrint++
+            if (bucket === 'ignoreBoth') byBoth++
+          }
+        }
+      }
+    }
+    coverage[item.setNum] = { strict, ignoreColors: byColor, ignorePrints: byPrint, ignoreBoth: byBoth, total }
+  }
+  return coverage
+}
+
 function App() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('brickvault-user') || 'null'))
   const [keyReady, setKeyReady] = useState(null)
@@ -76,14 +147,16 @@ function App() {
   const [needSort, setNeedSort] = useState('desc')
   const [wishlist, setWishlist] = useState([])
   const [wishlistBusy, setWishlistBusy] = useState(false)
+  const [wishlistCoverage, setWishlistCoverage] = useState({}) // Map<setNum, {strict, ignoreColors, ignorePrints, ignoreBoth, total}>
+  const [wishlistMatching, setWishlistMatching] = useState({ ignoreColors: false, ignorePrints: false })
   async function refresh() {
-    let [sets, parts, wl] = await Promise.all([api.listOwnedSets(), api.inventory(), api.listWishlist()])
+    let [sets, parts] = await Promise.all([api.listOwnedSets(), api.inventory()])
     if (parts.needsPartMetadataBackfill) {
       await api.backfillPartMetadata()
       ;[sets, parts] = await Promise.all([api.listOwnedSets(), api.inventory()])
       setNotice('Updated saved sets with printed-part metadata.')
     }
-    setOwnedSets(sets.sets); setInventory(parts); setWishlist(wl.items)
+    setOwnedSets(sets.sets); setInventory(parts)
   }
   useEffect(() => {
     if (!user || keyReady !== true) return undefined
@@ -138,7 +211,11 @@ function App() {
     catch (err) { setError(err.message) }
   }
   async function refreshWishlist() {
-    try { const wl = await api.listWishlist(); setWishlist(wl.items) } catch (err) { setError(err.message) }
+    try {
+      const { items, ownedSets: inv } = await api.listWishlistData()
+      setWishlist(items)
+      setWishlistCoverage(computeWishlistCoverage(items, inv))
+    } catch (err) { setError(err.message) }
   }
   function logout() { localStorage.removeItem('brickvault-token'); localStorage.removeItem('brickvault-user'); setUser(null); setKeyReady(null) }
   function authenticated(account) { localStorage.setItem('brickvault-user', JSON.stringify(account)); setUser(account); setKeyReady(account.hasRebrickableKey) }
@@ -168,7 +245,15 @@ function App() {
           <div className="build-result-controls"><div className="build-result-tabs"><button className={buildResultTab === 'need' ? 'active' : ''} onClick={() => setBuildResultTab('need')}>Need <span>{build.summary.missingPartTypes}</span></button><button className={buildResultTab === 'have' ? 'active' : ''} onClick={() => setBuildResultTab('have')}>Have <span>{build.summary.uniqueParts - build.summary.missingPartTypes}</span></button></div>{buildResultTab === 'need' && <label className="need-sort">Sort <select value={needSort} onChange={(event) => setNeedSort(event.target.value)}><option value="desc">Most needed first</option><option value="asc">Least needed first</option></select></label>}</div>
           <Parts parts={buildParts} comparison tabKey={buildResultTab} /></>}</section>}
       {tab === 'wishlist' && <section className="panel"><h2>Wishlist</h2><p className="muted">Sets you want to build. Coverage reflects your current vault.</p>
-        <div className="owned">{wishlist.length ? wishlist.map((item) => <article className="owned-set wishlist-card" key={item._id}>{item.imageUrl && <img src={item.imageUrl} alt="" />}<div><p className="eyebrow">{item.setNum}{item.matching?.ignoreColors || item.matching?.ignorePrints ? ' · ' : ''}{item.matching?.ignoreColors ? 'any color' : ''}{item.matching?.ignoreColors && item.matching?.ignorePrints ? ', ' : ''}{item.matching?.ignorePrints ? 'any print' : ''}</p><h3>{item.setName}</h3>{item.summary ? <p className={`status ${item.summary.canBuild ? 'have' : 'missing'}`}>{item.summary.canBuild ? 'You can build this!' : `${item.summary.totalMissing} pieces still needed`}</p> : <p className="muted">Coverage unavailable</p>}</div>{item.summary && <p className="summary"><strong>{item.summary.uniqueParts - item.summary.missingPartTypes}/{item.summary.uniqueParts}</strong> part types covered</p>}<button className="danger icon-btn" title="Remove from wishlist" onClick={() => removeFromWishlist(item._id)}><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></article>) : <p className="empty">Your wishlist is empty. Check a set in the Build checker and add it.</p>}</div>
+        <div className="matching-options"><label><input type="checkbox" checked={wishlistMatching.ignoreColors} onChange={(e) => setWishlistMatching((m) => ({ ...m, ignoreColors: e.target.checked }))} /> Ignore part colors</label><label><input type="checkbox" checked={wishlistMatching.ignorePrints} onChange={(e) => setWishlistMatching((m) => ({ ...m, ignorePrints: e.target.checked }))} /> Ignore printed designs</label></div>
+        <div className="owned">{wishlist.length ? wishlist.map((item) => {
+          const cov = wishlistCoverage[item.setNum]
+          const bucket = wishlistMatching.ignoreColors && wishlistMatching.ignorePrints ? 'ignoreBoth' : wishlistMatching.ignoreColors ? 'ignoreColors' : wishlistMatching.ignorePrints ? 'ignorePrints' : 'strict'
+          const covered = cov ? cov[bucket] : null
+          const total = cov ? cov.total : null
+          const canBuild = cov && covered === total
+          return <article className="owned-set wishlist-card" key={item._id}>{item.imageUrl && <img src={item.imageUrl} alt="" />}<div><p className="eyebrow">{item.setNum}</p><h3>{item.setName}</h3>{cov ? <p className={`status ${canBuild ? 'have' : 'missing'}`}>{canBuild ? 'You can build this!' : `${total - covered} part types still needed`}</p> : <p className="muted">Coverage unavailable — search this set in Build checker first</p>}</div>{cov && <p className="summary"><strong>{covered}/{total}</strong> part types covered</p>}<button className="danger icon-btn" title="Remove from wishlist" onClick={() => removeFromWishlist(item._id)}><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></article>
+        }) : <p className="empty">Your wishlist is empty. Check a set in the Build checker and add it.</p>}</div>
       </section>}
     </main></div>
 }

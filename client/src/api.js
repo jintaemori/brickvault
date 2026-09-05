@@ -26,6 +26,7 @@ export const api = {
     return request(`/build/${encodeURIComponent(setNum)}?${query}`)
   },
   listWishlist: () => request('/wishlist'),
+  listWishlistData: () => request('/wishlist/data'),
   addToWishlist: (data) => request('/wishlist', { method: 'POST', body: JSON.stringify(data) }),
   removeFromWishlist: (id) => request(`/wishlist/${id}`, { method: 'DELETE' }),
 }

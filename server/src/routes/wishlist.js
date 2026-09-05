@@ -3,43 +3,52 @@ import { requireAuth } from '../middleware/auth.js'
 import { WishlistItem } from '../models/WishlistItem.js'
 import { SetCache } from '../models/SetCache.js'
 import { OwnedSet } from '../models/OwnedSet.js'
-import { computeCoverage } from './build.js'
 
 const router = Router()
 
+// Lightweight list — no coverage computation, used for wishlist state init
 router.get('/', requireAuth, async (req, res) => {
   try {
     const items = await WishlistItem.find({ userId: req.user._id }).sort({ createdAt: -1 })
-    if (!items.length) return res.json({ items: [] })
+    res.json({ items })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
 
-    const ownedSets = await OwnedSet.find({ userId: req.user._id })
+// Full data endpoint — returns wishlist items with cached parts + owned inventory for client-side coverage
+router.get('/data', requireAuth, async (req, res) => {
+  try {
+    const items = await WishlistItem.find({ userId: req.user._id }).sort({ createdAt: -1 })
+    if (!items.length) return res.json({ items: [], ownedSets: [] })
 
-    const results = await Promise.all(
-      items.map(async (item) => {
-        const cached = await SetCache.findOne({ setNum: item.setNum })
-        if (!cached) {
-          return {
-            _id: item._id,
-            setNum: item.setNum,
-            setName: item.setName,
-            imageUrl: item.imageUrl,
-            matching: item.matching,
-            summary: null,
-          }
-        }
-        const { summary } = computeCoverage(cached.parts, ownedSets, item.matching)
-        return {
-          _id: item._id,
-          setNum: item.setNum,
-          setName: item.setName,
-          imageUrl: item.imageUrl,
-          matching: item.matching,
-          summary,
-        }
-      }),
-    )
+    const [ownedSets, cachedSets] = await Promise.all([
+      OwnedSet.find({ userId: req.user._id }),
+      SetCache.find({ setNum: { $in: items.map((i) => i.setNum) } }),
+    ])
 
-    res.json({ items: results })
+    const cacheBySetNum = new Map(cachedSets.map((c) => [c.setNum, c]))
+
+    const result = items.map((item) => {
+      const cached = cacheBySetNum.get(item.setNum)
+      return {
+        _id: item._id,
+        setNum: item.setNum,
+        setName: item.setName,
+        imageUrl: item.imageUrl,
+        parts: cached ? cached.parts : null,
+      }
+    })
+
+    // Strip parts from ownedSets down to just what coverage needs
+    const inventory = ownedSets.map((s) => ({
+      copyCount: s.copyCount,
+      excludeFromBuild: s.excludeFromBuild,
+      excludeCount: s.excludeCount,
+      parts: s.parts,
+    }))
+
+    res.json({ items: result, ownedSets: inventory })
   } catch (error) {
     res.status(500).json({ error: error.message })
   }
