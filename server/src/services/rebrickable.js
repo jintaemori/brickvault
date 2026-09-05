@@ -73,6 +73,7 @@ export async function getSetParts(setNum, apiKey) {
       data = await rebrickableFetch(`/lego/sets/${setNum}/parts/`, apiKey, {
         page_size: 1000,
         inc_color_details: 1,
+        inc_part_details: 1,
       })
     }
 
@@ -90,15 +91,22 @@ export async function getSetParts(setNum, apiKey) {
 function normalizePart(row) {
   const part = row.part || {}
   const color = row.color || {}
+  const partName = part.name || part.part_num || 'Unnamed LEGO part'
   const isMinifig = part.part_cat_id === 69 || part.name?.toLowerCase().includes('minifig')
+  const basePartNum = typeof part.print_of === 'string'
+    ? part.print_of
+    : part.print_of?.part_num || part.part_num
+  const isPrinted = Boolean(part.print_of)
 
   if (isMinifig) {
     return {
       canonicalId: `minifig:${part.part_num}`,
-      name: part.name,
+      name: partName,
       type: 'minifig',
       designId: part.part_num,
       partNum: part.part_num,
+      basePartNum: null,
+      isPrinted: false,
       colorId: null,
       colorName: null,
       rebrickableId: part.part_num,
@@ -110,10 +118,12 @@ function normalizePart(row) {
 
   return {
     canonicalId: `part:${part.part_num}:${color.id}`,
-    name: part.name,
+    name: partName,
     type: 'part',
     designId: part.part_num,
     partNum: part.part_num,
+    basePartNum,
+    isPrinted,
     colorId: color.id,
     colorName: color.name,
     rebrickableId: part.part_num,

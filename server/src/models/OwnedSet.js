@@ -7,6 +7,8 @@ const partSchema = new mongoose.Schema(
     type: { type: String, enum: ['part', 'minifig'], required: true },
     designId: String,
     partNum: String,
+    basePartNum: String,
+    isPrinted: { type: Boolean, default: false },
     colorId: Number,
     colorName: String,
     rebrickableId: String,

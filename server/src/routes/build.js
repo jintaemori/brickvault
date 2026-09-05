@@ -6,25 +6,45 @@ import { getUserRebrickableKey } from '../services/credentials.js'
 
 const router = Router()
 
+function matchKey(part, { ignoreColors, ignorePrints }) {
+  if (part.type === 'minifig') return part.canonicalId
+  const partIdentity = ignorePrints ? (part.basePartNum || part.partNum) : part.partNum
+  return ignoreColors ? `part:${partIdentity}` : `part:${partIdentity}:${part.colorId}`
+}
+
 router.get('/:setNum', requireAuth, async (req, res) => {
   try {
-    const targetSet = await getSetWithParts(req.params.setNum, await getUserRebrickableKey(req.user._id))
+    const matching = {
+      ignoreColors: req.query.ignoreColors === 'true',
+      ignorePrints: req.query.ignorePrints === 'true',
+    }
+    const apiKey = await getUserRebrickableKey(req.user._id)
+    const targetSet = await getSetWithParts(req.params.setNum, apiKey)
     const ownedSets = await OwnedSet.find({ userId: req.user._id })
-    const availableByPart = new Map()
+    const availableByKey = new Map()
+
     for (const ownedSet of ownedSets) {
       for (const part of ownedSet.parts) {
-        availableByPart.set(part.canonicalId, (availableByPart.get(part.canonicalId) || 0) + part.qtyPerSet * ownedSet.copyCount)
+        const key = matchKey(part, matching)
+        availableByKey.set(key, (availableByKey.get(key) || 0) + part.qtyPerSet * ownedSet.copyCount)
       }
     }
+
+    const remainingByKey = new Map(availableByKey)
     const parts = targetSet.parts.map((part) => {
-      const available = availableByPart.get(part.canonicalId) || 0
-      const missing = Math.max(0, part.qtyPerSet - available)
-      return { ...part, required: part.qtyPerSet, available, missing, status: missing === 0 ? 'have' : 'missing' }
+      const key = matchKey(part, matching)
+      const poolAvailable = availableByKey.get(key) || 0
+      const available = Math.min(part.qtyPerSet, remainingByKey.get(key) || 0)
+      const missing = part.qtyPerSet - available
+      remainingByKey.set(key, Math.max(0, (remainingByKey.get(key) || 0) - part.qtyPerSet))
+      return { ...part, required: part.qtyPerSet, available, poolAvailable, missing, status: missing === 0 ? 'have' : 'missing' }
     })
+
     const totalRequired = parts.reduce((sum, part) => sum + part.required, 0)
     const totalMissing = parts.reduce((sum, part) => sum + part.missing, 0)
     res.json({
       set: { setNum: targetSet.setNum, setName: targetSet.setName, imageUrl: targetSet.imageUrl },
+      matching,
       summary: { totalRequired, totalMissing, totalAvailable: totalRequired - totalMissing, canBuild: totalMissing === 0, uniqueParts: parts.length, missingPartTypes: parts.filter((part) => part.missing > 0).length },
       parts,
     })

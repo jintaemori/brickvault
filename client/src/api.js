@@ -16,7 +16,11 @@ export const api = {
   lookupSet: (setNum) => request(`/sets/lookup/${encodeURIComponent(setNum)}`),
   listOwnedSets: () => request('/sets/owned'),
   addOwnedSet: (data) => request('/sets/owned', { method: 'POST', body: JSON.stringify(data) }),
+  backfillPartMetadata: () => request('/sets/owned/backfill-part-metadata', { method: 'POST' }),
   removeOwnedSet: (id) => request(`/sets/owned/${id}`, { method: 'DELETE' }),
   inventory: () => request('/inventory'),
-  buildCheck: (setNum) => request(`/build/${encodeURIComponent(setNum)}`),
+  buildCheck: (setNum, matching) => {
+    const query = new URLSearchParams({ ignoreColors: String(matching.ignoreColors), ignorePrints: String(matching.ignorePrints) })
+    return request(`/build/${encodeURIComponent(setNum)}?${query}`)
+  },
 }

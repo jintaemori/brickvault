@@ -71,8 +71,14 @@ function App() {
   const [preview, setPreview] = useState(null)
   const [copies, setCopies] = useState(1)
   const [build, setBuild] = useState(null)
+  const [matching, setMatching] = useState({ ignoreColors: false, ignorePrints: false })
   async function refresh() {
-    const [sets, parts] = await Promise.all([api.listOwnedSets(), api.inventory()])
+    let [sets, parts] = await Promise.all([api.listOwnedSets(), api.inventory()])
+    if (parts.needsPartMetadataBackfill) {
+      await api.backfillPartMetadata()
+      ;[sets, parts] = await Promise.all([api.listOwnedSets(), api.inventory()])
+      setNotice('Updated saved sets with printed-part metadata.')
+    }
     setOwnedSets(sets.sets); setInventory(parts)
   }
   useEffect(() => {
@@ -92,7 +98,7 @@ function App() {
   function lookup(setNum) { run(async () => { setPreview(await api.lookupSet(setNum)); setCopies(1) }) }
   function addSet() { run(async () => { await api.addOwnedSet({ setNum: preview.setNum, copyCount: copies }); await refresh(); setNotice(`${preview.setName} added to your vault.`); setPreview(null) }) }
   function removeSet(id) { run(async () => { await api.removeOwnedSet(id); await refresh(); setNotice('Set removed from your vault.') }) }
-  function check(setNum) { run(async () => setBuild(await api.buildCheck(setNum))) }
+  function check(setNum) { run(async () => setBuild(await api.buildCheck(setNum, matching))) }
   function logout() { localStorage.removeItem('brickvault-token'); localStorage.removeItem('brickvault-user'); setUser(null); setKeyReady(null) }
   function authenticated(account) { localStorage.setItem('brickvault-user', JSON.stringify(account)); setUser(account); setKeyReady(account.hasRebrickableKey) }
   function keySaved() { const updatedUser = { ...user, hasRebrickableKey: true }; localStorage.setItem('brickvault-user', JSON.stringify(updatedUser)); setUser(updatedUser); setKeyReady(true) }
@@ -107,13 +113,15 @@ function App() {
       {tab === 'inventory' && <section className="panel"><div className="panel-title"><div><h2>My inventory</h2><p className="muted">Parts are summed across every dismantled set.</p></div>{inventory && <p className="stat"><strong>{inventory.totalPieces}</strong> pieces · {inventory.totalUniqueParts} unique</p>}</div>
         <div className="owned">{ownedSets.length ? ownedSets.map((set) => <article className="owned-set" key={set._id}>{set.imageUrl && <img src={set.imageUrl} alt="" />}<div><p className="eyebrow">{set.setNum} · {set.copyCount} {set.copyCount === 1 ? 'copy' : 'copies'}</p><h3>{set.setName}</h3><p className="muted">{set.partCount} part entries</p></div><button className="danger" onClick={() => removeSet(set._id)} disabled={busy}>Remove</button></article>) : <p className="empty">Your vault is empty. Add your first dismantled set.</p>}</div>
         {inventory?.parts?.length > 0 && <Parts parts={inventory.parts.slice(0, 20)} />}</section>}
-      {tab === 'build' && <section className="panel"><h2>Can I build this?</h2><p className="muted">This checks your vault without removing any pieces.</p><SetForm label="Set number to build" action="Check parts" busy={busy} onSubmit={check} />
+      {tab === 'build' && <section className="panel"><h2>Can I build this?</h2><p className="muted">This checks your vault without removing any pieces. Minifigures always match exactly.</p>
+        <div className="matching-options"><label><input type="checkbox" checked={matching.ignoreColors} onChange={(event) => setMatching({ ...matching, ignoreColors: event.target.checked })} /> Ignore part colors</label><label><input type="checkbox" checked={matching.ignorePrints} onChange={(event) => setMatching({ ...matching, ignorePrints: event.target.checked })} /> Ignore printed designs</label></div>
+        <SetForm label="Set number to build" action="Check parts" busy={busy} onSubmit={check} />
         {build && <><article className="set-card build-card">{build.set.imageUrl && <img src={build.set.imageUrl} alt="" />}<div><p className="eyebrow">{build.set.setNum}</p><h3>{build.set.setName}</h3><p className={`status ${build.summary.canBuild ? 'have' : 'missing'}`}>{build.summary.canBuild ? 'You can build this set!' : `${build.summary.totalMissing} pieces still needed`}</p></div><p className="summary"><strong>{build.summary.uniqueParts - build.summary.missingPartTypes}/{build.summary.uniqueParts}</strong> part types covered</p></article><Parts parts={build.parts} comparison /></>}</section>}
     </main></div>
 }
 
 function Parts({ parts, comparison = false }) {
-  return <div className="part-list">{parts.map((part) => <article className="part" key={part.canonicalId}>{part.imageUrl ? <img src={part.imageUrl} alt="" /> : <div className="part-image" />}<div><h3>{part.name}</h3><p className="muted">{part.colorName || 'Minifigure'} · {comparison ? `need ${part.required}, have ${part.available}` : part.partNum}</p></div><strong className={part.status}>{comparison ? part.missing ? `Need ${part.missing}` : 'Have' : `×${part.quantity}`}</strong></article>)}</div>
+  return <div className="part-list">{parts.map((part) => <article className="part" key={part.canonicalId}>{part.imageUrl ? <img src={part.imageUrl} alt="" /> : <div className="part-image" />}<div><h3>{part.name}</h3><p className="muted">{part.colorName || 'Minifigure'} · {comparison ? `need ${part.required}, matching pool ${part.poolAvailable}` : part.partNum}</p></div><strong className={part.status}>{comparison ? part.missing ? `Need ${part.missing}` : 'Have' : `×${part.quantity}`}</strong></article>)}</div>
 }
 
 export default App

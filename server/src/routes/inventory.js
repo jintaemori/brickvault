@@ -57,12 +57,18 @@ router.get('/', requireAuth, async (req, res) => {
     }
   }
 
-  const parts = [...aggregated.values()].sort((a, b) => a.name.localeCompare(b.name))
+  const parts = [...aggregated.values()].sort((a, b) =>
+    (a.name || a.partNum || 'Unnamed LEGO part').localeCompare(b.name || b.partNum || 'Unnamed LEGO part'),
+  )
+  const needsPartMetadataBackfill = ownedSets.some((ownedSet) =>
+    ownedSet.parts.some((part) => part.type === 'part' && !part.basePartNum),
+  )
 
   res.json({
     view: view || 'total',
     totalUniqueParts: parts.length,
     totalPieces: parts.reduce((sum, part) => sum + part.quantity, 0),
+    needsPartMetadataBackfill,
     parts,
   })
 })

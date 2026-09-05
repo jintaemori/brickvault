@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { User } from '../models/User.js'
 import { requireAuth, signToken } from '../middleware/auth.js'
-import { encrypt } from '../services/credentials.js'
+import { decrypt, encrypt } from '../services/credentials.js'
 import { validateApiKey } from '../services/rebrickable.js'
 
 const router = Router()
@@ -69,7 +69,13 @@ router.post('/login', async (req, res) => {
 
 router.get('/rebrickable-key', requireAuth, async (req, res) => {
   const user = await User.findById(req.user._id).select('+rebrickableKey')
-  res.json({ linked: Boolean(user?.rebrickableKey) })
+  if (!user?.rebrickableKey) return res.json({ linked: false })
+  try {
+    decrypt(user.rebrickableKey)
+    res.json({ linked: true })
+  } catch {
+    res.json({ linked: false })
+  }
 })
 
 router.put('/rebrickable-key', requireAuth, async (req, res) => {
@@ -77,10 +83,16 @@ router.put('/rebrickable-key', requireAuth, async (req, res) => {
   if (!apiKey) return res.status(400).json({ error: 'A Rebrickable API key is required' })
   try {
     await validateApiKey(apiKey)
+  } catch {
+    return res.status(400).json({ error: 'Rebrickable rejected that API key. Check it and try again.' })
+  }
+
+  try {
     await User.findByIdAndUpdate(req.user._id, { rebrickableKey: encrypt(apiKey) })
     res.json({ linked: true })
-  } catch {
-    res.status(400).json({ error: 'Rebrickable rejected that API key. Check it and try again.' })
+  } catch (error) {
+    console.error('Could not encrypt Rebrickable API key:', error.message)
+    res.status(500).json({ error: 'BrickVault is missing its encryption configuration. Ask the app owner to set ENCRYPTION_KEY.' })
   }
 })
 
