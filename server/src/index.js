@@ -9,7 +9,18 @@ import buildRoutes from './routes/build.js'
 import wishlistRoutes from './routes/wishlist.js'
 
 const app = express()
-app.use(cors({ origin: config.clientUrl }))
+app.use(cors({
+  origin: config.clientUrl,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}))
+app.options('*', cors({
+  origin: config.clientUrl,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}))
 app.use(express.json({ limit: '1mb' }))
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.use('/api/auth', authRoutes)
