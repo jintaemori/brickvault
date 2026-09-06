@@ -36,16 +36,30 @@ router.get('/data', requireAuth, async (req, res) => {
         setNum: item.setNum,
         setName: item.setName,
         imageUrl: item.imageUrl,
-        parts: cached ? cached.parts : null,
+        parts: cached ? cached.parts.map((p) => ({
+          canonicalId: p.canonicalId,
+          type: p.type,
+          partNum: p.partNum,
+          basePartNum: p.basePartNum,
+          colorId: p.colorId,
+          qtyPerSet: p.qtyPerSet,
+        })) : null,
       }
     })
 
-    // Strip parts from ownedSets down to just what coverage needs
+    // Strip owned set parts down to only what coverage computation needs
     const inventory = ownedSets.map((s) => ({
       copyCount: s.copyCount,
       excludeFromBuild: s.excludeFromBuild,
       excludeCount: s.excludeCount,
-      parts: s.parts,
+      parts: s.parts.map((p) => ({
+        canonicalId: p.canonicalId,
+        type: p.type,
+        partNum: p.partNum,
+        basePartNum: p.basePartNum,
+        colorId: p.colorId,
+        qtyPerSet: p.qtyPerSet,
+      })),
     }))
 
     res.json({ items: result, ownedSets: inventory })
